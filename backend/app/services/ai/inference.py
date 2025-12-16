@@ -82,15 +82,6 @@ def _sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
 
 
-def _to_logit(value: float) -> float:
-    """Convert a probability to logit if needed to avoid double-sigmoid."""
-
-    if 0.0 < value < 1.0:
-        clipped = np.clip(value, 1e-6, 1.0 - 1e-6)
-        return float(np.log(clipped / (1.0 - clipped)))
-    return float(value)
-
-
 def _get_model_input_size(session) -> Tuple[int, int]:
     """Extract the static (width, height) from the model input shape."""
 
@@ -196,15 +187,19 @@ def predict(image_bytes: bytes, conf_threshold: float = 0.6) -> List[Dict[str, o
     results: List[Dict[str, object]] = []
 
     for row in preds:
-        objectness = float(_sigmoid(_to_logit(float(row[4]))))
-        class_scores = _sigmoid(np.array([_to_logit(float(v)) for v in row[5 : 5 + num_classes]]))
+        objectness = float(_sigmoid(float(row[4])))
+        class_scores = _sigmoid(np.asarray(row[5 : 5 + num_classes], dtype=np.float32))
         if class_scores.size == 0:
             continue
 
         class_id = int(np.argmax(class_scores))
         class_conf = float(class_scores[class_id])
         confidence = float(objectness * class_conf)
-        if confidence + 1e-2 < conf_threshold:
+        if confidence < conf_threshold:
+            continue
+
+        class_name = class_names[class_id]
+        if class_name == "background":
             continue
 
         bbox_xyxy = _xywh_to_xyxy(row[:4])
@@ -218,7 +213,10 @@ def predict(image_bytes: bytes, conf_threshold: float = 0.6) -> List[Dict[str, o
         if x2 <= x1 or y2 <= y1:
             continue
 
-        class_name = class_names[class_id]
+        width, height = x2 - x1, y2 - y1
+        if width < 10.0 or height < 10.0:
+            continue
+
         nutrition = _NUTRITION_MAP.get(
             class_name,
             {"calories": 0.0, "proteins": 0.0, "fats": 0.0, "carbs": 0.0},
