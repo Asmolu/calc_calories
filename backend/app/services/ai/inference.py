@@ -67,11 +67,29 @@ def _load_class_names() -> List[str]:
         return [str(name) for name in parsed]
 
     raise ValueError("Unsupported class names format in model metadata.")
+
+
 @lru_cache(maxsize=1)
 def get_class_names() -> List[str]:
     """Return class names loaded from the model metadata, cached after first read."""
 
     return _load_class_names()
+
+
+def _sigmoid(x):
+    """Numerically stable sigmoid for logits."""
+
+    return 1.0 / (1.0 + np.exp(-x))
+
+
+def _to_logit(value: float) -> float:
+    """Convert a probability to logit if needed to avoid double-sigmoid."""
+
+    if 0.0 < value < 1.0:
+        clipped = np.clip(value, 1e-6, 1.0 - 1e-6)
+        return float(np.log(clipped / (1.0 - clipped)))
+    return float(value)
+
 
 def _get_model_input_size(session) -> Tuple[int, int]:
     """Extract the static (width, height) from the model input shape."""
@@ -139,7 +157,7 @@ _NUTRITION_MAP: Dict[str, Dict[str, float]] = {
 }
 
 
-def predict(image_bytes: bytes, conf_threshold: float = 0.4) -> List[Dict[str, object]]:
+def predict(image_bytes: bytes, conf_threshold: float = 0.6) -> List[Dict[str, object]]:
     """Run YOLOv8 detection on input image bytes.
 
     The function preprocesses the image, performs ONNXRuntime inference, filters
@@ -178,21 +196,28 @@ def predict(image_bytes: bytes, conf_threshold: float = 0.4) -> List[Dict[str, o
     results: List[Dict[str, object]] = []
 
     for row in preds:
-        objectness = float(row[4])
-        class_scores = row[5 : 5 + num_classes]
+        objectness = float(_sigmoid(_to_logit(float(row[4]))))
+        class_scores = _sigmoid(np.array([_to_logit(float(v)) for v in row[5 : 5 + num_classes]]))
         if class_scores.size == 0:
             continue
 
         class_id = int(np.argmax(class_scores))
         class_conf = float(class_scores[class_id])
-        confidence = objectness * class_conf
-        if confidence < conf_threshold:
+        confidence = float(objectness * class_conf)
+        if confidence + 1e-2 < conf_threshold:
             continue
 
         bbox_xyxy = _xywh_to_xyxy(row[:4])
         scaled_bbox = _scale_bbox(
             bbox_xyxy, scale_x=scale_x, scale_y=scale_y, max_w=float(orig_w), max_h=float(orig_h)
         )
+        if not np.all(np.isfinite(scaled_bbox)):
+            continue
+
+        x1, y1, x2, y2 = scaled_bbox
+        if x2 <= x1 or y2 <= y1:
+            continue
+
         class_name = class_names[class_id]
         nutrition = _NUTRITION_MAP.get(
             class_name,
@@ -202,7 +227,7 @@ def predict(image_bytes: bytes, conf_threshold: float = 0.4) -> List[Dict[str, o
             {
                 "class_name": class_name,
                 "confidence": confidence,
-                "bounding_box": scaled_bbox,
+                "bounding_box": [float(x1), float(y1), float(x2), float(y2)],
                 "calories": nutrition["calories"],
                 "proteins": nutrition["proteins"],
                 "fats": nutrition["fats"],
