@@ -20,7 +20,10 @@ class RecognizedItem(BaseModel):
     confidence: Optional[float] = Field(
         default=None, description="Optional confidence score returned by the model"
     )
-
+    bounding_box: Optional[list[float]] = Field(
+        default=None,
+        description="Bounding box [x1, y1, x2, y2] in original image coordinates",
+    )
 
 class MealSummary(BaseModel):
     id: str

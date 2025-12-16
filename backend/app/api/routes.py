@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.core.config import get_settings
 from app.schemas import HealthResponse, MealSummary, PredictionResponse, RecognizedItem
 from app.services.meals import get_recent_meals
 from app.services.utils import calculate_totals
+from app.services.ai import inference
 
 api_router = APIRouter()
 
@@ -28,17 +29,33 @@ async def recent_meals() -> list[MealSummary]:
 
 @api_router.post("/ai/predict", response_model=PredictionResponse, tags=["ai"])
 async def predict(file: UploadFile | None = File(default=None)) -> PredictionResponse:
-    """Mock AI prediction endpoint.
+    """Run AI inference on the uploaded food photo.
 
-    The endpoint accepts an optional image upload and returns deterministic
-    nutritional information to allow the frontend to be exercised before the
-    actual ONNX-backed inference is wired in.
+    The endpoint performs ONNXRuntime inference on the provided image bytes,
+    converts detections to the public response schema, and computes aggregate
+    nutrition totals. Nutrition values are zero-initialized until a nutrition
+    database is integrated; the primary goal is to validate the AI pipeline end
+    to end.
     """
 
-    placeholder_items = [
-        RecognizedItem(name="Salmon", calories=180, proteins=20, fats=10, carbs=0, confidence=0.92),
-        RecognizedItem(name="Roasted vegetables", calories=140, proteins=3, fats=7, carbs=18, confidence=0.74),
+    if file is None:
+        raise HTTPException(status_code=400, detail="Image file is required")
+
+    image_bytes = await file.read()
+    detections = inference.predict(image_bytes=image_bytes)
+
+    items = [
+        RecognizedItem(
+            name=det["class_name"],
+            calories=0.0,
+            proteins=0.0,
+            fats=0.0,
+            carbs=0.0,
+            confidence=float(det.get("confidence", 0.0)),
+            bounding_box=det.get("bounding_box"),
+        )
+        for det in detections
     ]
 
-    totals = calculate_totals(placeholder_items)
-    return PredictionResponse(items=placeholder_items, totals=totals)
+    totals = calculate_totals(items)
+    return PredictionResponse(items=items, totals=totals)
