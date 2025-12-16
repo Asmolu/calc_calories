@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from functools import lru_cache
 from typing import Dict, List, Sequence
 
 import numpy as np
@@ -66,9 +67,12 @@ def _load_class_names() -> List[str]:
         return [str(name) for name in parsed]
 
     raise ValueError("Unsupported class names format in model metadata.")
+@lru_cache(maxsize=1)
+def get_class_names() -> List[str]:
+    """Return class names loaded from the model metadata, cached after first read."""
 
+    return _load_class_names()
 
-_CLASS_NAMES: List[str] = _load_class_names()
 _MODEL_SIZE = 640.0
 
 
@@ -104,7 +108,8 @@ def predict(image_bytes: bytes, conf_threshold: float = 0.4) -> List[Dict[str, o
         raise ValueError(f"Unexpected prediction tensor shape: {predictions.shape}")
 
     preds = predictions[0]
-    num_classes = len(_CLASS_NAMES)
+    class_names = get_class_names()
+    num_classes = len(class_names)
     results: List[Dict[str, object]] = []
 
     for row in preds:
@@ -125,7 +130,7 @@ def predict(image_bytes: bytes, conf_threshold: float = 0.4) -> List[Dict[str, o
         )
         results.append(
             {
-                "class_name": _CLASS_NAMES[class_id],
+                "class_name": class_names[class_id],
                 "confidence": confidence,
                 "bounding_box": scaled_bbox,
             }
