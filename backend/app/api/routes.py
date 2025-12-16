@@ -32,10 +32,9 @@ async def predict(file: UploadFile | None = File(default=None)) -> PredictionRes
     """Run AI inference on the uploaded food photo.
 
     The endpoint performs ONNXRuntime inference on the provided image bytes,
-    converts detections to the public response schema, and computes aggregate
-    nutrition totals. Nutrition values are zero-initialized until a nutrition
-    database is integrated; the primary goal is to validate the AI pipeline end
-    to end.
+        converts detections (including mock nutrition estimates) to the public
+    response schema, and computes aggregate nutrition totals to keep the UI
+    usable while the full database integration is pending.
     """
 
     if file is None:
@@ -47,10 +46,10 @@ async def predict(file: UploadFile | None = File(default=None)) -> PredictionRes
     items = [
         RecognizedItem(
             name=det["class_name"],
-            calories=0.0,
-            proteins=0.0,
-            fats=0.0,
-            carbs=0.0,
+            calories=float(det.get("calories", 0.0)),
+            proteins=float(det.get("proteins", 0.0)),
+            fats=float(det.get("fats", 0.0)),
+            carbs=float(det.get("carbs", 0.0)),
             confidence=float(det.get("confidence", 0.0)),
             bounding_box=det.get("bounding_box"),
         )

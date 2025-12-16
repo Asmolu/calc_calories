@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 from functools import lru_cache
-from typing import Dict, List, Sequence
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 
@@ -73,15 +73,79 @@ def get_class_names() -> List[str]:
 
     return _load_class_names()
 
-_MODEL_SIZE = 640.0
+def _get_model_input_size(session) -> Tuple[int, int]:
+    """Extract the static (width, height) from the model input shape."""
+
+    shape = session.get_inputs()[0].shape
+    if len(shape) < 4:
+        raise ValueError(f"Unexpected model input shape: {shape}")
+
+    height, width = shape[2], shape[3]
+    if not isinstance(width, int) or not isinstance(height, int):
+        raise ValueError("Model input dimensions must be static integers.")
+
+    return int(width), int(height)
+
+
+def _iou(box_a: Sequence[float], box_b: Sequence[float]) -> float:
+    """Compute Intersection-over-Union for two ``[x1, y1, x2, y2]`` boxes."""
+
+    ax1, ay1, ax2, ay2 = box_a
+    bx1, by1, bx2, by2 = box_b
+
+    inter_x1 = max(ax1, bx1)
+    inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2)
+    inter_y2 = min(ay2, by2)
+
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    inter_area = inter_w * inter_h
+
+    area_a = max(0.0, ax2 - ax1) * max(0.0, ay2 - ay1)
+    area_b = max(0.0, bx2 - bx1) * max(0.0, by2 - by1)
+
+    union = area_a + area_b - inter_area
+    if union <= 0:
+        return 0.0
+    return inter_area / union
+
+
+def _nms(detections: List[Dict[str, object]], iou_threshold: float = 0.45) -> List[Dict[str, object]]:
+    """Apply Non-Maximum Suppression to a list of detection dicts."""
+
+    sorted_dets = sorted(detections, key=lambda d: float(d["confidence"]), reverse=True)
+    kept: List[Dict[str, object]] = []
+
+    while sorted_dets:
+        best = sorted_dets.pop(0)
+        kept.append(best)
+        sorted_dets = [
+            det
+            for det in sorted_dets
+            if _iou(best["bounding_box"], det["bounding_box"]) < iou_threshold
+        ]
+
+    return kept
+
+
+_NUTRITION_MAP: Dict[str, Dict[str, float]] = {
+    "apple": {"calories": 52.0, "proteins": 0.3, "fats": 0.2, "carbs": 14.0},
+    "banana": {"calories": 96.0, "proteins": 1.3, "fats": 0.3, "carbs": 27.0},
+    "chicken": {"calories": 165.0, "proteins": 31.0, "fats": 3.6, "carbs": 0.0},
+    "salmon": {"calories": 208.0, "proteins": 20.0, "fats": 13.0, "carbs": 0.0},
+    "rice": {"calories": 130.0, "proteins": 2.7, "fats": 0.3, "carbs": 28.0},
+    "bread": {"calories": 265.0, "proteins": 9.0, "fats": 3.2, "carbs": 49.0},
+}
 
 
 def predict(image_bytes: bytes, conf_threshold: float = 0.4) -> List[Dict[str, object]]:
     """Run YOLOv8 detection on input image bytes.
 
     The function preprocesses the image, performs ONNXRuntime inference, filters
-    predictions by confidence, rescales bounding boxes to the original image
-    dimensions, and returns structured detection results.
+    predictions by confidence, applies Non-Maximum Suppression, rescales
+    bounding boxes to the original image dimensions, and returns structured
+    detection results with mock nutrition mapping.
 
     Args:
         image_bytes: Raw image bytes.
@@ -93,10 +157,11 @@ def predict(image_bytes: bytes, conf_threshold: float = 0.4) -> List[Dict[str, o
     """
 
     session = get_model_session()
-    input_tensor, original_size = load_image(image_bytes)
+    model_w, model_h = _get_model_input_size(session)
+    input_tensor, original_size = load_image(image_bytes, target_size=(model_w, model_h))
     orig_w, orig_h = original_size
-    scale_x = float(orig_w) / _MODEL_SIZE
-    scale_y = float(orig_h) / _MODEL_SIZE
+    scale_x = float(orig_w) / float(model_w)
+    scale_y = float(orig_h) / float(model_h)
 
     input_name = session.get_inputs()[0].name
     outputs = session.run(None, {input_name: input_tensor})
@@ -128,12 +193,21 @@ def predict(image_bytes: bytes, conf_threshold: float = 0.4) -> List[Dict[str, o
         scaled_bbox = _scale_bbox(
             bbox_xyxy, scale_x=scale_x, scale_y=scale_y, max_w=float(orig_w), max_h=float(orig_h)
         )
+        class_name = class_names[class_id]
+        nutrition = _NUTRITION_MAP.get(
+            class_name,
+            {"calories": 0.0, "proteins": 0.0, "fats": 0.0, "carbs": 0.0},
+        )
         results.append(
             {
-                "class_name": class_names[class_id],
+                "class_name": class_name,
                 "confidence": confidence,
                 "bounding_box": scaled_bbox,
+                "calories": nutrition["calories"],
+                "proteins": nutrition["proteins"],
+                "fats": nutrition["fats"],
+                "carbs": nutrition["carbs"],
             }
         )
 
-    return results
+    return _nms(results)

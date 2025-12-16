@@ -41,6 +41,10 @@ def test_predict_uses_ai_inference(monkeypatch: pytest.MonkeyPatch, client: Test
                 "class_name": "salmon",
                 "confidence": 0.91,
                 "bounding_box": [1.0, 2.0, 3.0, 4.0],
+                "calories": 200.0,
+                "proteins": 19.0,
+                "fats": 12.0,
+                "carbs": 0.0,
             }
         ]
 
@@ -58,17 +62,17 @@ def test_predict_uses_ai_inference(monkeypatch: pytest.MonkeyPatch, client: Test
     assert payload["items"] == [
         {
             "name": "salmon",
-            "calories": 0.0,
-            "proteins": 0.0,
-            "fats": 0.0,
+            "calories": 200.0,
+            "proteins": 19.0,
+            "fats": 12.0,
             "carbs": 0.0,
             "confidence": 0.91,
             "bounding_box": [1.0, 2.0, 3.0, 4.0],
         }
     ]
     assert payload["totals"] == {
-        "calories": 0.0,
-        "proteins": 0.0,
-        "fats": 0.0,
+        "calories": 200.0,
+        "proteins": 19.0,
+        "fats": 12.0,
         "carbs": 0.0,
     }

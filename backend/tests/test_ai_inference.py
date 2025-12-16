@@ -27,7 +27,7 @@ def test_predict_scales_and_filters_detections(monkeypatch):
             return FakeModelMeta()
 
         def get_inputs(self):
-            return [SimpleNamespace(name="images")]
+            return [SimpleNamespace(name="images", shape=[1, 3, 768, 768])]
 
         def run(self, *_args, **_kwargs):
             return [
@@ -53,4 +53,6 @@ def test_predict_scales_and_filters_detections(monkeypatch):
     detection = predictions[0]
     assert detection["class_name"] == "apple"
     assert detection["confidence"] == pytest.approx(0.72, rel=1e-6)
-    assert detection["bounding_box"] == pytest.approx([200.0, 150.0, 600.0, 450.0])
+    assert detection["bounding_box"] == pytest.approx([166.6667, 125.0, 500.0, 375.0], rel=1e-4)
+    assert detection["calories"] == 52.0
+    assert detection["carbs"] == 14.0
