@@ -77,9 +77,12 @@ def get_class_names() -> List[str]:
 
 
 def _sigmoid(x):
-    """Numerically stable sigmoid for logits."""
+    """Sigmoid that treats probability inputs as stable no-ops."""
 
-    return 1.0 / (1.0 + np.exp(-x))
+    arr = np.asarray(x, dtype=np.float32)
+    if np.all((arr >= 0.0) & (arr <= 1.0)):
+        return arr
+    return 1.0 / (1.0 + np.exp(-arr))
 
 
 def _get_model_input_size(session) -> Tuple[int, int]:
@@ -148,7 +151,7 @@ _NUTRITION_MAP: Dict[str, Dict[str, float]] = {
 }
 
 
-def predict(image_bytes: bytes, conf_threshold: float = 0.6) -> List[Dict[str, object]]:
+def predict(image_bytes: bytes, conf_threshold: float = 0.25) -> List[Dict[str, object]]:
     """Run YOLOv8 detection on input image bytes.
 
     The function preprocesses the image, performs ONNXRuntime inference, filters
@@ -188,18 +191,18 @@ def predict(image_bytes: bytes, conf_threshold: float = 0.6) -> List[Dict[str, o
 
     for row in preds:
         objectness = float(_sigmoid(float(row[4])))
-        class_scores = _sigmoid(np.asarray(row[5 : 5 + num_classes], dtype=np.float32))
-        if class_scores.size == 0:
+        class_probs = _sigmoid(np.asarray(row[5 : 5 + num_classes], dtype=np.float32))
+        if class_probs.size == 0:
             continue
 
-        class_id = int(np.argmax(class_scores))
-        class_conf = float(class_scores[class_id])
-        confidence = float(objectness * class_conf)
-        if confidence < conf_threshold:
-            continue
-
+        class_id = int(np.argmax(class_probs))
         class_name = class_names[class_id]
         if class_name == "background":
+            continue
+
+        class_conf = float(class_probs[class_id])
+        confidence = float(objectness * class_conf)
+        if confidence < conf_threshold:
             continue
 
         bbox_xyxy = _xywh_to_xyxy(row[:4])
@@ -211,10 +214,6 @@ def predict(image_bytes: bytes, conf_threshold: float = 0.6) -> List[Dict[str, o
 
         x1, y1, x2, y2 = scaled_bbox
         if x2 <= x1 or y2 <= y1:
-            continue
-
-        width, height = x2 - x1, y2 - y1
-        if width < 10.0 or height < 10.0:
             continue
 
         nutrition = _NUTRITION_MAP.get(

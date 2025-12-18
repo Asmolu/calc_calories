@@ -70,3 +70,69 @@ media/
 logs/
 __test_output__/
 localstart
+
+# ==================================================
+# AI / ML specific
+# ==================================================
+
+# Trained models & checkpoints
+vit-food101/
+models/
+checkpoints/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+
+# HuggingFace caches
+.cache/
+**/.cache/huggingface/
+**/.cache/datasets/
+**/.cache/torch/
+
+# Datasets
+data/
+dataset/
+datasets/
+food101/
+*.parquet
+*.arrow
+
+# Training artifacts
+runs/
+logs/
+wandb/
+
+# ==================================================
+# CUDA / GPU
+# ==================================================
+*.cu
+*.cuh
+
+# ==================================================
+# OS / Editor
+# ==================================================
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
+
+# ==================================================
+# Environment
+# ==================================================
+.env
+.env.*
+*.env
+
+# ==================================================
+# Python
+# ==================================================
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
